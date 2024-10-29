@@ -1,38 +1,26 @@
-from typing_extensions import deprecated
-
 import torch
 
-# We need to keep this unused import for BC reasons
-from torch.amp.grad_scaler import OptState  # noqa: F401
+N, D_in, D_out = 64, 1024, 16
+x = torch.randn(N, D_in, device='cuda')
+y = torch.randn(N, D_out, device='cuda')
 
+model = torch.nn.Linear(D_in, D_out).cuda()
+optimizer = torch.optim.SGD(model.parameters(), lr=1e-2)
+loss_fn = torch.nn.MSELoss()
 
-__all__ = ["GradScaler"]
+# from torch.cuda.amp import GradScaler, autocast
 
+from gradscaler2 import GradScaler
+scaler = GradScaler()
 
-class GradScaler(torch.amp.GradScaler):
-    r"""
-    See :class:`torch.amp.GradScaler`.
-    ``torch.cuda.amp.GradScaler(args...)`` is deprecated. Please use ``torch.amp.GradScaler("cuda", args...)`` instead.
-    """
+def run_fwd_bwd():
+    with torch.cuda.amp.autocast():
+        y_pred = model(x)
+        loss = loss_fn(y_pred, y)
+    scaler.scale(loss).backward()
+    scaler.step(optimizer)
+    optimizer.zero_grad(set_to_none=True)
+    scaler.update()
 
-    @deprecated(
-        "`torch.cuda.amp.GradScaler(args...)` is deprecated. "
-        "Please use `torch.amp.GradScaler('cuda', args...)` instead.",
-        category=FutureWarning,
-    )
-    def __init__(
-        self,
-        init_scale: float = 2.0**16,
-        growth_factor: float = 2.0,
-        backoff_factor: float = 0.5,
-        growth_interval: int = 2000,
-        enabled: bool = True,
-    ) -> None:
-        super().__init__(
-            "cuda",
-            init_scale=init_scale,
-            growth_factor=growth_factor,
-            backoff_factor=backoff_factor,
-            growth_interval=growth_interval,
-            enabled=enabled,
-        )
+for t in range(20):
+    run_fwd_bwd()
